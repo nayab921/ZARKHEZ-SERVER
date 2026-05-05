@@ -252,35 +252,41 @@ db.collection("iot_data")
   });
 
 // =========================================================
-
 // 🛡️ 4. SAFETY LOGIC (AUTO / MANUAL SENSORS)
-
 // =========================================================
 
-db.collection("iot_data")
-  .doc("sensors")
-  .onSnapshot(async (doc) => {
-    try {
-      if (!doc.exists) return;
+// 🔥 NAYI LOGIC: Server pichli values yaad rakhega
+let lastV = 0;
+let lastC = 0;
 
-      const data = doc.data();
+db.collection("iot_data").doc("sensors").onSnapshot(async (doc) => {
+  try {
+    if (!doc.exists) return;
+    const data = doc.data();
+    const v = data.voltage || 0;
+    const c = data.current || 0;
+    const { minV, maxV, maxA, controlMode } = safetySettings;
 
-      const v = data.voltage || 0;
+    let reason = "";
 
-      const c = data.current || 0;
+    // Check karte hain ke limit se bahar kya hai
+    const isVBad = (v > 0.5 && v < minV) || (v > maxV);
+    const isCBad = (c > maxA);
 
-      const { minV, maxV, maxA, controlMode } = safetySettings;
-
-      if (v > 0.5) {
-        let reason = "";
-
-      if (c > maxA) {
-      reason = `Overload Current (${c}A)`; // Current barhay toh sirf overload kahega
-    } else if (v > 0.5 && v < minV) {
-      reason = `Low Voltage (${v}V)`;
-    } else if (v > maxV) {
-      reason = `High Voltage (${v}V)`;
+    // 🔥 MAIN MAGIC: Jo value change hui hai, usi ka reason banay ga
+    if (isCBad && c !== lastC) {
+      reason = `Overload Current (${c}A)`;
+    } else if (isVBad && v !== lastV) {
+      reason = v < minV ? `Low Voltage (${v}V)` : `High Voltage (${v}V)`;
+    } else if (isCBad) {
+      reason = `Overload Current (${c}A)`; // Fallback
+    } else if (isVBad) {
+      reason = v < minV ? `Low Voltage (${v}V)` : `High Voltage (${v}V)`; // Fallback
     }
+
+    // Agli dafa ke check ke liye purani values ko update kar do
+    lastV = v;
+    lastC = c;
 
         if (reason) {
           const relay = await db.collection("iot_data").doc("relay").get();
@@ -347,7 +353,6 @@ db.collection("iot_data")
 
           lastWarningTime = 0;
         }
-      }
     } catch (err) {
       console.error("❌ Safety Logic Error:", err);
     }
