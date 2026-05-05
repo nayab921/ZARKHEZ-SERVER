@@ -3,9 +3,21 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const serviceAccount = require('./serviceAccountKey.json');
 
+const app = express();
+
 console.log("========================================");
 console.log("🚀 ZARKHEZ ULTIMATE SERVER STARTING...");
 console.log("========================================");
+
+// 👇 SMART PATH FINDER (Render vs Laptop)
+let serviceAccount;
+if (fs.existsSync('/etc/secrets/serviceAccountKey.json')) {
+    console.log("☁️ Render Environment Detected! Loading secret key...");
+    serviceAccount = require('/etc/secrets/serviceAccountKey.json');
+} else {
+    console.log("💻 Local Environment Detected! Loading local key...");
+    serviceAccount = require('./serviceAccountKey.json');
+}
 
 try {
     admin.initializeApp({
