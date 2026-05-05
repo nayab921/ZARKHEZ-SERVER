@@ -31,7 +31,7 @@ try {
 const db = admin.firestore();
 
 // =========================================================
-// 🔔 SMART PUSH NOTIFICATION FUNCTION (BACKGROUND FIX)
+// 🔔 SMART PUSH NOTIFICATION FUNCTION (ORIGINAL WORKING CODE)
 // =========================================================
 async function sendPush(userName, title, body) {
     if (!userName || userName === 'System' || userName === 'null') return;
@@ -48,29 +48,20 @@ async function sendPush(userName, title, body) {
 
         const fcmToken = tokenDoc.data().fcmToken;
 
-        const payload = {
-            token: fcmToken,
+        // 👇 Bilkul purana aur simple tariqa jo phone par 100% chalta hai!
+        await admin.messaging().send({
             notification: { 
                 title: String(title), 
                 body: String(body) 
             },
-            data: { // KILLED STATE FIX: App ko neend se jagane ke liye
-                title: String(title),
-                body: String(body),
-                type: 'urgent_alert'
-            },
-            android: {
-                priority: 'high'
-            }
-        };
+            token: fcmToken
+        });
 
-        await admin.messaging().send(payload);
         console.log(`✅ SUCCESS: Notification sent to [${userName}] -> ${title}`);
     } catch (err) {
         console.error(`❌ ERROR in sendPush:`, err.message);
     }
 }
-
 // =========================================================
 // STATE VARIABLES (DON'T DELETE THESE!)
 // =========================================================
