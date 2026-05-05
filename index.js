@@ -57,7 +57,7 @@ async function sendPush(userName, title, body) {
       notification: { title: String(title), body: String(body) },
       android: {
         priority: "high",
-        notification: { sound: "default", channelId: "alerts", tag: Date.now().toString() }
+        notification: { sound: "default", channelId: "alerts", tag: "zarkhez_update" }
       }
     };
 
@@ -175,9 +175,13 @@ db.collection("iot_data").doc("sensors").onSnapshot(async (doc) => {
 
     if (v > 0.5) {
       let reason = "";
-      if (v < minV) reason = `Low Voltage (${v}V)`;
-      else if (v > maxV) reason = `High Voltage (${v}V)`;
-      else if (c > maxA) reason = `Overload (${c}A)`;
+      if (c > maxA) {
+      reason = `Overload Current (${c}A)`; // Current barhay toh sirf overload kahega
+    } else if (v > 0.5 && v < minV) {
+      reason = `Low Voltage (${v}V)`;
+    } else if (v > maxV) {
+      reason = `High Voltage (${v}V)`;
+    }
 
       if (reason) {
         const relay = await db.collection("iot_data").doc("relay").get();
