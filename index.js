@@ -1,7 +1,6 @@
 const express = require('express');
 const admin = require('firebase-admin');
 const cron = require('node-cron');
-const serviceAccount = require('./serviceAccountKey.json');
 
 const app = express();
 
