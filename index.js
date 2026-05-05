@@ -211,103 +211,66 @@ db.collection("iot_data")
             `🛑 Motor OFF process started. Duration: ${durationMins.toFixed(2)} mins`,
           );
 
+          // OFF NOTIFICATION
           setTimeout(async () => {
             try {
-              const recentEvents = await db
-                .collection("events")
-                .where("type", "==", "MOTOR_OFF")
-                .orderBy("timestamp", "desc")
-                .limit(1)
-                .get();
-
+              const recentEvents = await db.collection("events").where("type", "==", "MOTOR_OFF").orderBy("timestamp", "desc").limit(1).get();
               let appDidIt = false;
-
-              if (
-                !recentEvents.empty &&
-                Date.now() -
-                  recentEvents.docs[0].data().timestamp?.toDate().getTime() <
-                  10000
-              )
-                appDidIt = true;
+              if (!recentEvents.empty && Date.now() - recentEvents.docs[0].data().timestamp?.toDate().getTime() < 10000) appDidIt = true;
 
               if (!appDidIt) {
                 await db.collection("events").add({
                   type: "MOTOR_OFF",
                   message: `Motor stopped. Duration: ${durationMins.toFixed(2)} mins`,
-
                   timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                  userName: activeUser,
+                  userName: activeUser || "System",
                 });
-
                 sendPush(activeUser, "🛑 Motor Stopped", `Motor turned OFF.`);
               }
-            } catch (e) {
-              console.log("❌ OFF Event Error:", e.message);
-            }
+            } catch (e) { console.log("❌ OFF Event Error:", e.message); }
           }, 3000);
 
+          // BILLING & CLEARING ACTIVE USER
           if (durationMins > 0.05) {
             setTimeout(async () => {
               try {
-                const recentBills = await db
-                  .collection("billing_history")
-                  .orderBy("timestamp", "desc")
-                  .limit(1)
-                  .get();
-
+                const recentBills = await db.collection("billing_history").orderBy("timestamp", "desc").limit(1).get();
                 let billGenerated = false;
-
-                if (
-                  !recentBills.empty &&
-                  Date.now() -
-                    recentBills.docs[0].data().timestamp?.toDate().getTime() <
-                    15000
-                )
-                  billGenerated = true;
+                if (!recentBills.empty && Date.now() - recentBills.docs[0].data().timestamp?.toDate().getTime() < 15000) billGenerated = true;
 
                 if (!billGenerated) {
-                  const rateDoc = await db
-                    .collection("settings")
-                    .doc("billing_config")
-                    .get();
-
+                  const rateDoc = await db.collection("settings").doc("billing_config").get();
                   const rate = rateDoc.data()?.currentRate || 200;
-
                   const billAmount = (durationMins / 60) * rate;
 
                   await db.collection("billing_history").add({
-                    userName: activeUser,
-
+                    userName: activeUser || "System",
                     duration: durationMins.toFixed(2),
-
                     billAmount: billAmount.toFixed(2),
-
                     status: "pending",
-
                     mode: activeMode,
-
-                    startTime:
-                      admin.firestore.Timestamp.fromMillis(sessionStartTime),
-
+                    startTime: admin.firestore.Timestamp.fromMillis(sessionStartTime),
                     endTime: admin.firestore.Timestamp.now(),
-
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                   });
 
                   console.log(`💰 Bill Created! Rs ${billAmount.toFixed(2)}`);
-
-                  sendPush(
-                    activeUser,
-                    "💰 Bill Generated",
-                    `Duration: ${durationMins.toFixed(2)} mins. Bill: Rs. ${billAmount.toFixed(2)}`,
-                  );
+                  
+                  // Bill ki notification send karo
+                  sendPush(activeUser, "💰 Bill Generated", `Duration: ${durationMins.toFixed(2)} mins. Bill: Rs. ${billAmount.toFixed(2)}`);
+                  
+                  // 🔥 SAB SE END MEIN USER NULL KARO (Loop nahi banega!)
+                  await db.collection("iot_data").doc("relay").update({ activeUser: null });
                 }
-              } catch (e) {
-                console.log("❌ Billing Error:", e.message);
-              }
+              } catch (e) { console.log("❌ Billing Error:", e.message); }
             }, 6000);
-          }
+          } else {
+            // Agar duration kam thi aur bill nahi bana, toh 4 sec baad null kar do
+            setTimeout(async () => {
+              await db.collection("iot_data").doc("relay").update({ activeUser: null });
+            }, 4000);
         }
+      }
       }
     } catch (globalErr) {
       console.error("❌ Crash Prevented in Relay Logic:", globalErr);
@@ -353,7 +316,7 @@ db.collection("iot_data")
               await db
                 .collection("iot_data")
                 .doc("relay")
-                .update({ command: "off", status: "off" ,activeUser: null });
+                .update({ command: "off", status: "off" });
 
               sendPush(
                 activeUser,
@@ -388,7 +351,7 @@ db.collection("iot_data")
                   await db
                     .collection("iot_data")
                     .doc("relay")
-                    .update({ command: "off", status: "off" ,activeUser: null});
+                    .update({ command: "off", status: "off" ,});
 
                   sendPush(
                     activeUser,
@@ -486,7 +449,7 @@ cron.schedule("* * * * *", async () => {
         await db
           .collection("iot_data")
           .doc("relay")
-          .update({ command: "off", status: "off" ,activeUser: null });
+          .update({ command: "off", status: "off"});
 
         await db
           .collection("schedules")
