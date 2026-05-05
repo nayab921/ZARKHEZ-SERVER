@@ -381,7 +381,7 @@ db.collection("iot_data")
                   );
                 } else {
                   console.log(
-                    "🛑 FORCED SHUTDOWN (MANUAL MODE - 3 Warnings Reached)",
+                    "🛑 FORCED SHUTDOWN (MANUAL MODE - 2 Warnings Reached)",
                   );
 
                   await db
