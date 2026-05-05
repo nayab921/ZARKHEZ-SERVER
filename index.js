@@ -327,17 +327,13 @@ db.collection("iot_data")
   });
 
 // =========================================================
-
 // ⏰ 5. SCHEDULE RUNNER (PAKISTAN TIME FIXED)
-
 // =========================================================
 
 cron.schedule("* * * * *", async () => {
   const now = getPKTTime(); // 🔥 Hamesha Pakistan ka time parhega
-
   const currentMins = now.getHours() * 60 + now.getMinutes();
-
-  const currentDay = (now.getDay() + 6) % 7;
+  const currentDay = (now.getDay() + 6) % 7; // Monday = 0
 
   try {
     const pendingSchedules = await db
@@ -347,73 +343,69 @@ cron.schedule("* * * * *", async () => {
 
     pendingSchedules.forEach(async (doc) => {
       const sch = doc.data();
-
-      const user = sch.activeUser;
+      const user = sch.activeUser || sch.assignedTo; // User Fallback
 
       if (sch.status === "pending") {
         let isStartDay = false;
 
-        if (sch.repeatType === "today" || sch.repeatType === "custom") {
-          const schDate = sch.startTime.toDate();
-
-          if (
-            schDate.getDate() === now.getDate() &&
-            schDate.getMonth() === now.getMonth()
-          )
+        // 🔥 FIX 1: Firestore ki dates ko bhi zabardasti Pakistan ke waqt mein convert karo!
+        if (sch.repeatType === "today" && sch.startTime) {
+          const schDateUTC = sch.startTime.toDate();
+          const schDatePKT = new Date(schDateUTC.toLocaleString("en-US", { timeZone: "Asia/Karachi" }));
+          
+          if (schDatePKT.getDate() === now.getDate() && schDatePKT.getMonth() === now.getMonth()) {
             isStartDay = true;
-        } else if (
-          sch.repeatType === "weekly" &&
-          sch.daysOfWeek &&
-          sch.daysOfWeek.includes(currentDay)
-        ) {
+          }
+        } 
+        else if (sch.repeatType === "custom" && sch.scheduleDate) {
+          const schDateUTC = sch.scheduleDate.toDate();
+          const schDatePKT = new Date(schDateUTC.toLocaleString("en-US", { timeZone: "Asia/Karachi" }));
+          
+          if (schDatePKT.getDate() === now.getDate() && schDatePKT.getMonth() === now.getMonth()) {
+            isStartDay = true;
+          }
+        } 
+        else if (sch.repeatType === "weekly" && sch.daysOfWeek && sch.daysOfWeek.includes(currentDay)) {
           isStartDay = true;
         }
 
+        // --- START MOTOR ---
         if (isStartDay && sch.startMinutes === currentMins) {
           console.log(`⏰ Schedule STARTED for ${user}`);
 
+          // 🔥 FIX 2: Sirf 'command' ON karo! 'status' hardware khud ON karega.
+          // Is se Relay Listener trigger hoga, jo khud ba khud Push Notification bhej dega!
           await db.collection("iot_data").doc("relay").update({
             command: "on",
-            status: "on",
             activeUser: user,
             mode: "auto",
           });
 
-          await db
-            .collection("schedules")
-            .doc(doc.id)
-            .update({ status: "running" });
-
-          sendPush(
-            user,
-            "📅 Schedule Started",
-            `Your scheduled watering has started.`,
-          );
+          await db.collection("schedules").doc(doc.id).update({ status: "running" });
+          
+          // Schedule ki apni notification
+          sendPush(user, "📅 Schedule Started", `Your scheduled watering has started.`);
         }
       }
 
+      // --- STOP MOTOR ---
       if (sch.status === "running" && sch.endMinutes === currentMins) {
         console.log(`⏰ Schedule COMPLETED for ${user}`);
 
-        await db
-          .collection("iot_data")
-          .doc("relay")
-          .update({ command: "off", status: "off" });
+        // 🔥 FIX 3: Sirf 'command' OFF karo! 
+        // Relay listener automatically Bill banayega aur 'Motor Stopped' ki notification bheje ga!
+        await db.collection("iot_data").doc("relay").update({ 
+          command: "off" 
+        });
 
-        await db
-          .collection("schedules")
-          .doc(doc.id)
-          .update({ status: "completed" });
+        await db.collection("schedules").doc(doc.id).update({ status: "completed" });
 
-        sendPush(
-          user,
-          "✅ Schedule Completed",
-          `Your scheduled watering has finished.`,
-        );
+        // Schedule mukammal hone ki notification
+        sendPush(user, "✅ Schedule Completed", `Your scheduled watering has finished.`);
       }
     });
   } catch (err) {
-    console.error("❌ Schedule Error:", err);
+    console.error("❌ Cron Schedule Error:", err);
   }
 });
 
