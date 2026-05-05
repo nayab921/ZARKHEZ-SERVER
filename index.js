@@ -120,136 +120,113 @@ db.collection("settings")
 console.log("👀 Listening for Database Changes...");
 
 // =========================================================
-
 // ⚡ 3. MOTOR ON/OFF & BILLING LOGIC (STATELESS)
-
 // =========================================================
+db.collection("iot_data").doc("relay").onSnapshot(async (doc) => {
+  try {
+    if (!doc.exists) return;
+    const data = doc.data();
+    
+    const status = data.status; // "on" ya "off"
+    const activeUser = data.activeUser;
+    const mode = data.mode || "manual";
+    const sessionStartTime = data.sessionStartTime; 
 
-db.collection("iot_data")
-  .doc("relay")
-  .onSnapshot(async (doc) => {
-    try {
-      if (!doc.exists) return;
+    // --- MOTOR ON LOGIC ---
+    if (status === "on" && !sessionStartTime) {
+      console.log(`⏳ Motor ON process started for ${activeUser}...`);
+      
+      const nowTime = Date.now();
+      await db.collection("iot_data").doc("relay").update({ sessionStartTime: nowTime });
 
-      const data = doc.data();
+      // 🔥 FIXED: 3 second delay ke baad HAMESHA notification bheje ga
+      setTimeout(async () => {
+        try {
+          const recentEvents = await db.collection("events").where("type", "==", "MOTOR_ON").orderBy("timestamp", "desc").limit(1).get();
+          let appDidIt = false;
+          if (!recentEvents.empty && Date.now() - recentEvents.docs[0].data().timestamp?.toDate().getTime() < 10000) appDidIt = true;
 
-      const status = data.status; // "on" ya "off"
-
-      const activeUser = data.activeUser;
-
-      const mode = data.mode || "manual";
-
-      const sessionStartTime = data.sessionStartTime; // 🔥 RAM nahi, Firebase mein time save hoga
-
-      // --- MOTOR ON LOGIC ---
-
-      if (status === "on" && !sessionStartTime) {
-        console.log(`⏳ Motor ON process started for ${activeUser}...`);
-
-        const nowTime = Date.now();
-
-        // DB mein time save kar do taake server so bhi jaye toh time na bhoole
-
-        await db
-          .collection("iot_data")
-          .doc("relay")
-          .update({ sessionStartTime: nowTime });
-
-        await db.collection("events").add({
-          type: "MOTOR_ON",
-
-          message: `Motor started by ${activeUser}`,
-
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-
-          userName: activeUser || "System",
-        });
-
-        sendPush(
-          activeUser,
-          "⚡ Motor Started",
-          `Motor turned ON by ${activeUser}`,
-        );
-
-        manualNotifCount = 0;
-
-        lastWarningTime = 0;
-      }
-
-      // --- MOTOR OFF & BILLING LOGIC ---
-
-      if (status === "off" && sessionStartTime) {
-        const durationMins = (Date.now() - sessionStartTime) / 60000;
-
-        console.log(
-          `🛑 Motor OFF process started. Duration: ${durationMins.toFixed(2)} mins`,
-        );
-
-        // 1. Motor Off Event & Notification
-
-        await db.collection("events").add({
-          type: "MOTOR_OFF",
-
-          message: `Motor stopped. Duration: ${durationMins.toFixed(2)} mins`,
-
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-
-          userName: activeUser || "System",
-        });
-
-        sendPush(activeUser, "🛑 Motor Stopped", `Motor turned OFF.`);
-
-        // 2. Bill Generate Karna
-
-        if (durationMins > 0.05) {
-          const rateDoc = await db
-            .collection("settings")
-            .doc("billing_config")
-            .get();
-
-          const rate = rateDoc.data()?.currentRate || 200;
-
-          const billAmount = (durationMins / 60) * rate;
-
-          await db.collection("billing_history").add({
-            userName: activeUser || "System",
-
-            duration: durationMins.toFixed(2),
-
-            billAmount: billAmount.toFixed(2),
-
-            status: "pending",
-
-            mode: mode,
-
-            startTime: admin.firestore.Timestamp.fromMillis(sessionStartTime),
-
-            endTime: admin.firestore.Timestamp.now(),
-
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          console.log(`💰 Bill Created! Rs ${billAmount.toFixed(2)}`);
-
-          sendPush(
-            activeUser,
-            "💰 Bill Generated",
-            `Duration: ${durationMins.toFixed(2)} mins. Bill: Rs. ${billAmount.toFixed(2)}`,
-          );
+          // Event duplicate na bane is liye appDidIt check hoga
+          if (!appDidIt) {
+            await db.collection("events").add({
+              type: "MOTOR_ON",
+              message: `Motor started by ${activeUser}`,
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              userName: activeUser || "System",
+            });
+          }
+          
+          // 🔥 PUSH HAMESHA BHEJO (If block se bahar nikal diya)
+          sendPush(activeUser, "⚡ Motor Started", `Motor turned ON by ${activeUser}`);
+          
+        } catch (e) {
+          console.log("❌ ON Event Error:", e.message);
         }
+      }, 3000);
 
-        // 3. Database se waqt aur user clear kar do taake loop na bane
-
-        await db.collection("iot_data").doc("relay").update({
-          activeUser: null,
-
-          sessionStartTime: null,
-        });
-      }
-    } catch (err) {
-      console.error("❌ Relay Logic Error:", err);
+      manualNotifCount = 0;
+      lastWarningTime = 0;
     }
-  });
+
+    // --- MOTOR OFF & BILLING LOGIC ---
+    if (status === "off" && sessionStartTime) {
+      const durationMins = (Date.now() - sessionStartTime) / 60000;
+      console.log(`🛑 Motor OFF process started. Duration: ${durationMins.toFixed(2)} mins`);
+
+      // 🔥 OFF EVENT & NOTIFICATION
+      setTimeout(async () => {
+        try {
+          const recentEvents = await db.collection("events").where("type", "==", "MOTOR_OFF").orderBy("timestamp", "desc").limit(1).get();
+          let appDidIt = false;
+          if (!recentEvents.empty && Date.now() - recentEvents.docs[0].data().timestamp?.toDate().getTime() < 10000) appDidIt = true;
+
+          if (!appDidIt) {
+            await db.collection("events").add({
+              type: "MOTOR_OFF",
+              message: `Motor stopped. Duration: ${durationMins.toFixed(2)} mins`,
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              userName: activeUser || "System",
+            });
+          }
+          
+          // 🔥 PUSH HAMESHA BHEJO
+          sendPush(activeUser, "🛑 Motor Stopped", `Motor turned OFF.`);
+          
+        } catch (e) { console.log("❌ OFF Event Error:", e.message); }
+      }, 3000);
+
+      // BILLING
+      if (durationMins > 0.05) {
+        const rateDoc = await db.collection("settings").doc("billing_config").get();
+        const rate = rateDoc.data()?.currentRate || 200;
+        const billAmount = (durationMins / 60) * rate;
+
+        await db.collection("billing_history").add({
+          userName: activeUser || "System",
+          duration: durationMins.toFixed(2),
+          billAmount: billAmount.toFixed(2),
+          status: "pending",
+          mode: mode,
+          startTime: admin.firestore.Timestamp.fromMillis(sessionStartTime),
+          endTime: admin.firestore.Timestamp.now(),
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`💰 Bill Created! Rs ${billAmount.toFixed(2)}`);
+        sendPush(activeUser, "💰 Bill Generated", `Duration: ${durationMins.toFixed(2)} mins. Bill: Rs. ${billAmount.toFixed(2)}`);
+      }
+
+      // Database Cleanup
+      await db.collection("iot_data").doc("relay").update({ 
+        activeUser: null, 
+        sessionStartTime: null 
+      });
+    }
+
+  } catch (err) {
+    console.error("❌ Relay Logic Error:", err);
+  }
+});
 
 // =========================================================
 
