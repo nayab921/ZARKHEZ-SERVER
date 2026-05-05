@@ -167,7 +167,7 @@ db.collection('iot_data').doc('relay').onSnapshot(async doc => {
 });
 
 // =========================================================
-// 2. SAFETY LOGIC (Auto / Manual Limits - INSTANT TRIGGER)
+// 2. SAFETY LOGIC (Auto / Manual Limits)
 // =========================================================
 db.collection('iot_data').doc('sensors').onSnapshot(async doc => {
     if (!doc.exists || !activeSessionId) return;
@@ -176,7 +176,6 @@ db.collection('iot_data').doc('sensors').onSnapshot(async doc => {
     const c = data.current || 0;
     const { minV, maxV, maxA, controlMode } = safetySettings;
 
-    // Delay Removed! Now it will trigger as soon as it sees a bad value
     if (v > 0.5) {
         let reason = "";
         if (v < minV) reason = `Low Voltage (${v}V)`;
@@ -184,31 +183,40 @@ db.collection('iot_data').doc('sensors').onSnapshot(async doc => {
         else if (c > maxA) reason = `Overload (${c}A)`;
 
         if (reason) {
-            console.log(`⚠️ Safety Triggered: ${reason}`);
-            
             const relay = await db.collection('iot_data').doc('relay').get();
             if (relay.data().status === 'on') { 
                 const activeUser = relay.data().activeUser || 'System';
                 
                 if (controlMode === 'auto') {
-                    console.log("🛑 SHUTTING DOWN MOTOR (AUTO MODE)");
+                    console.log(`⚠️ Safety Triggered: ${reason} (AUTO MODE)`);
                     await db.collection('iot_data').doc('relay').update({ command: 'off', status: 'off' });
                     sendPush(activeUser, "⚠️ AUTO STOPPED", `Safety Shutdown: ${reason}`);
                 } else {
-                    if (manualNotifCount < 2) {
-                        manualNotifCount++;
-                        console.log(`⚠️ WARNING (${manualNotifCount}/3) SENT (MANUAL MODE)`);
-                        sendPush(activeUser, `⚠️ WARNING (${manualNotifCount}/3)`, `Critical: ${reason}. Please turn off motor!`);
-                    } else {
-                        console.log("🛑 FORCED SHUTDOWN (MANUAL MODE - 3 Warnings Reached)");
-                        await db.collection('iot_data').doc('relay').update({ command: 'off', status: 'off' });
-                        sendPush(activeUser, "🛑 FORCED STOP", "Motor stopped after 3 ignored warnings.");
-                        manualNotifCount = 0;
+                    // 👇 MANUAL MODE LOGIC (WITH 10 SECONDS COOLDOWN)
+                    const now = Date.now();
+                    
+                    // Agar pichli warning ko gaye 10 second ho chuke hain
+                    if (now - lastWarningTime > 10000) { 
+                        lastWarningTime = now; // Time update kar diya
+                        
+                        if (manualNotifCount < 2) {
+                            manualNotifCount++;
+                            console.log(`⚠️ WARNING (${manualNotifCount}/3) SENT (MANUAL MODE) - Reason: ${reason}`);
+                            sendPush(activeUser, `⚠️ WARNING (${manualNotifCount}/3)`, `Critical: ${reason}. Please turn off motor!`);
+                        } else {
+                            console.log("🛑 FORCED SHUTDOWN (MANUAL MODE - 3 Warnings Reached)");
+                            await db.collection('iot_data').doc('relay').update({ command: 'off', status: 'off' });
+                            sendPush(activeUser, "🛑 FORCED STOP", "Motor stopped after 3 ignored warnings.");
+                            manualNotifCount = 0;
+                            lastWarningTime = 0;
+                        }
                     }
                 }
             }
         } else {
+            // Agar voltage wapas NORMAL ho gaya, toh sab kuch bhool jao (Reset)
             manualNotifCount = 0; 
+            lastWarningTime = 0;
         }
     }
 });
