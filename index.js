@@ -200,10 +200,6 @@ db.collection("iot_data")
 
       if (status === "off") {
 
-        if (activeUser !== null) {
-          db.collection("iot_data").doc("relay").update({ activeUser: null }).catch(e => console.log("User clear error:", e.message));
-        }
-        
         if (activeSessionId) {
           const sessionStartTime = activeSessionId;
 
@@ -357,7 +353,7 @@ db.collection("iot_data")
               await db
                 .collection("iot_data")
                 .doc("relay")
-                .update({ command: "off", status: "off" });
+                .update({ command: "off", status: "off" ,activeUser: null });
 
               sendPush(
                 activeUser,
@@ -376,12 +372,12 @@ db.collection("iot_data")
                   manualNotifCount++;
 
                   console.log(
-                    `⚠️ WARNING (${manualNotifCount}/3) SENT (MANUAL MODE) - Reason: ${reason}`,
+                    `⚠️ WARNING (${manualNotifCount}/2) SENT (MANUAL MODE) - Reason: ${reason}`,
                   );
 
                   sendPush(
                     activeUser,
-                    `⚠️ WARNING (${manualNotifCount}/3)`,
+                    `⚠️ WARNING (${manualNotifCount}/2)`,
                     `Critical: ${reason}. Please turn off motor!`,
                   );
                 } else {
@@ -392,12 +388,12 @@ db.collection("iot_data")
                   await db
                     .collection("iot_data")
                     .doc("relay")
-                    .update({ command: "off", status: "off" });
+                    .update({ command: "off", status: "off" ,activeUser: null});
 
                   sendPush(
                     activeUser,
                     "🛑 FORCED STOP",
-                    "Motor stopped after 3 ignored warnings.",
+                    "Motor stopped after 2 ignored warnings.",
                   );
 
                   manualNotifCount = 0;
@@ -490,7 +486,7 @@ cron.schedule("* * * * *", async () => {
         await db
           .collection("iot_data")
           .doc("relay")
-          .update({ command: "off", status: "off" });
+          .update({ command: "off", status: "off" ,activeUser: null });
 
         await db
           .collection("schedules")
