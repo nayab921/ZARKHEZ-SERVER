@@ -199,6 +199,11 @@ db.collection("iot_data")
       }
 
       if (status === "off") {
+
+        if (activeUser !== null) {
+          db.collection("iot_data").doc("relay").update({ activeUser: null }).catch(e => console.log("User clear error:", e.message));
+        }
+        
         if (activeSessionId) {
           const sessionStartTime = activeSessionId;
 
