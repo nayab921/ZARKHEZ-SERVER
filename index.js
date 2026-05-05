@@ -60,11 +60,7 @@ async function sendPush(userName, title, body) {
                 type: 'urgent_alert'
             },
             android: {
-                priority: 'high',
-                notification: {
-                    channelId: 'alerts', // 👈 YEH WAPAS ADD KIYA HAY! Iske baghair phone notification gira deta hai
-                    sound: 'default'
-                }
+                priority: 'high'
             }
         };
 
